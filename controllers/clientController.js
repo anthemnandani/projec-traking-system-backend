@@ -1,5 +1,5 @@
 const supabase = require('../config/supabase');
-const { sendClientNotification } = require('./notificationService'); // Assume a notification service for clients
+const { sendClientNotification } = require('../services/notificationService'); // Assume a notification service for clients
 
 // Fetch all clients (admin) or client-specific data (non-admin)
 const getClients = async (req, res) => {
@@ -33,15 +33,38 @@ const createClient = async (req, res) => {
       return res.status(400).json({ error: 'Name, email, phone, address, and status are required' });
     }
 
+    // Validate status
+    if (!['active', 'idle', 'gone'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status. Must be active, idle, or gone' });
+    }
+
+    console.log('Creating client:', { name, email, phone, address, status, notes, created_by: req.user.sub });
+
     const { data, error } = await supabase
       .from('clients')
-      .insert([{ name, email, phone, address, status, notes, has_account: false }])
+      .insert([{
+        name,
+        email,
+        phone,
+        address,
+        status,
+        notes,
+        has_account: false,
+        created_by: req.user.sub,
+        created_at: new Date().toISOString(),
+      }])
       .select()
       .single();
 
     if (error) {
-      throw new Error('Failed to create client');
+      console.error('Supabase error:', error);
+      if (error.code === '23505') { // Unique constraint violation (e.g., duplicate email)
+        return res.status(400).json({ error: 'A client with this email already exists' });
+      }
+      return res.status(500).json({ error: `Failed to create client: ${error.message}` });
     }
+
+    console.log('Client created:', data);
 
     // Send notification for client creation
     await sendClientNotification(data.id, 'created');
