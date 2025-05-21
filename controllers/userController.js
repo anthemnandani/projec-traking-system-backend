@@ -3,54 +3,47 @@ const jwt = require('jsonwebtoken');
 
 const getCurrentUser = async (req, res) => {
   try {
+    let token;
+
+    // 1. Try reading token from Authorization header
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.error('Missing or invalid Authorization header');
-      return res.status(401).json({ error: 'Authorization header required' });
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
+    } else if (req.cookies['sb-access-token']) {
+      // 2. Fallback: Try reading token from cookie
+      token = req.cookies['sb-access-token'];
     }
 
-    const token = authHeader.split(' ')[1];
-    // Verify custom JWT
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (error) {
-      console.error('Invalid custom JWT:', error.message);
+    if (!token) {
+      return res.status(401).json({ error: 'Token not found' });
+    }
+
+    // Supabase Auth Token can't be verified manually like custom JWT
+    // So instead, call Supabase Auth API to get the user
+    const { data: userInfo, error } = await supabase.auth.getUser(token);
+    if (error || !userInfo?.user) {
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
 
-    // Fetch user data from users table
+    const userId = userInfo.user.id;
+
+    // Now get user data from users table
     const { data: userData, error: userError } = await supabase
       .from('users')
-      .select('id, name, email, phone, role, client_id, avatar_url, notification_preferences, appearance_settings, created_at, updated_at, last_login')
-      .eq('id', decoded.userId)
+      .select('*')
+      .eq('id', userId)
       .single();
+
     if (userError || !userData) {
-      console.error('User fetch error:', userError?.message || 'No user data');
       return res.status(404).json({ error: 'User profile not found' });
     }
 
-    const userResponse = {
-      id: userData.id,
-      email: userData.email,
-      name: userData.name,
-      role: userData.role,
-      clientId: userData.client_id,
-      phone: userData.phone,
-      avatar_url: userData.avatar_url,
-      notification_preferences: userData.notification_preferences,
-      appearance_settings: userData.appearance_settings,
-      created_at: userData.created_at,
-      updated_at: userData.updated_at,
-      last_login: userData.last_login
-    };
-
-    console.log('User data fetched for:', userData.email);
-    res.status(200).json(userResponse);
+    res.status(200).json(userData);
   } catch (error) {
-    console.error('Get user error:', error.message, error.stack);
-    res.status(400).json({ error: error.message });
+    console.error('Error getting user:', error.message);
+    res.status(500).json({ error: 'Failed to fetch user' });
   }
 };
+
 
 module.exports = { getCurrentUser };

@@ -9,6 +9,7 @@ const userRoutes = require('./routes/userRoutes');
 const clientRoutes = require('./routes/clientRoutes');
 const taskRoutes = require('./routes/taskRoutes');
 const invoiceRoutes = require('./routes/invoiceRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
 const { errorHandler } = require('./utils/errorHandler');
 
 // Load environment variables
@@ -60,6 +61,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/client', clientRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/invoices', invoiceRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // Error handling middleware
 app.use(errorHandler);

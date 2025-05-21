@@ -1,4 +1,5 @@
 const { supabase, supabaseAdmin } = require('../config/supabase');
+const { encrypt } = require('../utils/crypto');
 
 const login = async (req, res) => {
   try {
@@ -293,6 +294,53 @@ const forgotPassword = async (req, res) => {
   }
 };
 
+// const resetPassword = async (req, res) => {
+//   try {
+//     const { password } = req.body;
+
+//     if (!password) {
+//       return res.status(400).json({ error: 'Password is required' });
+//     }
+
+//     // Password strength validation
+//     const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{6,}$/;
+//     if (!passwordRegex.test(password)) {
+//       return res.status(400).json({
+//         error: 'Password must contain at least 1 uppercase letter, 1 number, 1 special character, and be at least 6 characters long',
+//       });
+//     }
+
+//     // Extract the token from the Authorization header
+//     const authHeader = req.headers.authorization;
+//     const token = authHeader && authHeader.split(' ')[1];
+
+//     if (!token) {
+//       return res.status(401).json({ error: 'Missing or invalid token' });
+//     }
+
+//     // Get the user using the token
+//     const { data: { user }, error: getUserError } = await supabaseAdmin.auth.getUser(token);
+
+//     if (getUserError || !user) {
+//       return res.status(401).json({ error: 'Invalid or expired token' });
+//     }
+
+//     // Update the password using admin privileges
+//     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(user.id, {
+//       password,
+//     });
+
+//     if (updateError) {
+//       return res.status(500).json({ error: 'Failed to reset password' });
+//     }
+
+//     res.status(200).json({ message: 'Password reset successfully' });
+//   } catch (error) {
+//     console.error('Reset password error:', error.message);
+//     res.status(500).json({ error: 'Internal server error' });
+//   }
+// };
+
 const resetPassword = async (req, res) => {
   try {
     const { password } = req.body;
@@ -309,7 +357,7 @@ const resetPassword = async (req, res) => {
       });
     }
 
-    // Extract the token from the Authorization header
+    // Extract the token from Authorization header
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -317,23 +365,37 @@ const resetPassword = async (req, res) => {
       return res.status(401).json({ error: 'Missing or invalid token' });
     }
 
-    // Get the user using the token
+    // Get user from Supabase Auth
     const { data: { user }, error: getUserError } = await supabaseAdmin.auth.getUser(token);
 
     if (getUserError || !user) {
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
 
-    // Update the password using admin privileges
+    // 1. Update password in Supabase Auth
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(user.id, {
       password,
     });
 
     if (updateError) {
-      return res.status(500).json({ error: 'Failed to reset password' });
+      return res.status(500).json({ error: 'Failed to reset password in Supabase Auth' });
+    }
+
+    // 2. Encrypt password
+    const encryptedPassword = encrypt(password);
+
+    // 3. Update password in custom 'users' table
+    const { error: dbUpdateError } = await supabaseAdmin
+      .from('users')
+      .update({ password: encryptedPassword })
+      .eq('id', user.id);
+
+    if (dbUpdateError) {
+      return res.status(500).json({ error: 'Password updated in Supabase Auth but failed to update in custom users table' });
     }
 
     res.status(200).json({ message: 'Password reset successfully' });
+
   } catch (error) {
     console.error('Reset password error:', error.message);
     res.status(500).json({ error: 'Internal server error' });

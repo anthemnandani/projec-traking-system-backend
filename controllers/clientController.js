@@ -1,261 +1,279 @@
-const supabase = require('../config/supabase');
-const { sendClientNotification } = require('../services/notificationService'); // Assume a notification service for clients
+const { supabase, supabaseAdmin } = require("../config/supabase");
+const nodemailer = require("nodemailer");
+const { encrypt, decrypt } = require('../utils/crypto');
+const { sendClientNotification } = require("../services/notificationService"); // Assume a notification service for clients
 
-// Fetch all clients (admin) or client-specific data (non-admin)
 const getClients = async (req, res) => {
   try {
-    const user = req.user; // Set by authenticate middleware
-    let query = supabase.from('clients').select('*');
+    const user = req.user;
+    let query = supabase.from("clients").select("*");
 
-    if (user.app_metadata.role !== 'admin') {
-      query = query.eq('id', user.app_metadata.clientId);
+    if (user.app_metadata.role !== "admin") {
+      query = query.eq("id", user.app_metadata.clientId);
     }
 
     const { data, error } = await query;
-    if (error) {
-      throw new Error('Failed to fetch clients');
-    }
+    if (error) throw new Error("Failed to fetch clients");
 
     res.status(200).json(data);
   } catch (error) {
-    console.error('Error fetching clients:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch clients' });
+    console.error("Error fetching clients:", error);
+    res.status(500).json({ error: error.message || "Failed to fetch clients" });
   }
 };
 
-// Create a new client (admin only)
 const createClient = async (req, res) => {
   try {
+    const token = req.cookies["sb-access-token"];
+    if (!token) {
+      return res
+        .status(401)
+        .json({ error: "Unauthorized: Access token missing in cookies" });
+    }
+
+    // Get user from Supabase Auth using the access token
+    const { data: userData, error: authError } = await supabase.auth.getUser(
+      token
+    );
+    if (authError || !userData?.user) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+
+    const user = userData.user;
+
     const { name, email, phone, address, status, notes } = req.body;
 
     // Validate required fields
     if (!name || !email || !phone || !address || !status) {
-      return res.status(400).json({ error: 'Name, email, phone, address, and status are required' });
+      return res.status(400).json({
+        error: "Name, email, phone, address, and status are required",
+      });
     }
 
     // Validate status
-    if (!['active', 'idle', 'gone'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid status. Must be active, idle, or gone' });
+    if (!["active", "idle", "gone"].includes(status)) {
+      return res
+        .status(400)
+        .json({ error: "Invalid status. Must be active, idle, or gone" });
     }
 
-    console.log('Creating client:', { name, email, phone, address, status, notes, created_by: req.user.sub });
+    console.log("Creating client:", {
+      name,
+      email,
+      phone,
+      address,
+      status,
+      notes,
+      created_by: user.id,
+    });
 
     const { data, error } = await supabase
-      .from('clients')
-      .insert([{
+      .from("clients")
+      .insert([
+        {
+          name,
+          email,
+          phone,
+          address,
+          status,
+          notes,
+          has_account: false,
+          created_by: user.id,
+          created_at: new Date().toISOString(),
+        },
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Supabase error:", error);
+      if (error.code === "23505") {
+        return res
+          .status(400)
+          .json({ error: "A client with this email already exists" });
+      }
+      return res
+        .status(500)
+        .json({ error: `Failed to create client: ${error.message}` });
+    }
+
+    console.log("Client created:", data);
+
+    await sendClientNotification(data.id, "created");
+
+    res.status(201).json(data);
+  } catch (error) {
+    console.error("Error creating client:", error);
+    res.status(500).json({ error: error.message || "Failed to create client" });
+  }
+};
+
+const updateClient = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, email, phone, address, status, notes, previousStatus } =
+      req.body;
+
+    const { data, error } = await supabase
+      .from("clients")
+      .update({
         name,
         email,
         phone,
         address,
         status,
         notes,
-        has_account: false,
-        created_by: req.user.sub,
-        created_at: new Date().toISOString(),
-      }])
+        updated_at: new Date(),
+      })
+      .eq("id", id)
       .select()
       .single();
 
-    if (error) {
-      console.error('Supabase error:', error);
-      if (error.code === '23505') { // Unique constraint violation (e.g., duplicate email)
-        return res.status(400).json({ error: 'A client with this email already exists' });
-      }
-      return res.status(500).json({ error: `Failed to create client: ${error.message}` });
-    }
+    if (error) throw new Error("Failed to update client");
 
-    console.log('Client created:', data);
-
-    // Send notification for client creation
-    await sendClientNotification(data.id, 'created');
-
-    res.status(201).json(data);
-  } catch (error) {
-    console.error('Error creating client:', error);
-    res.status(500).json({ error: error.message || 'Failed to create client' });
-  }
-};
-
-// Update an existing client (admin only)
-const updateClient = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { name, email, phone, address, status, notes } = req.body;
-
-    // Validate required fields
-    if (!name || !email || !phone || !address || !status) {
-      return res.status(400).json({ error: 'Name, email, phone, address, and status are required' });
-    }
-
-    const { data, error } = await supabase
-      .from('clients')
-      .update({ name, email, phone, address, status, notes, updated_at: new Date() })
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) {
-      throw new Error('Failed to update client');
-    }
-
-    // Send notification if status changed
-    if (data.status !== req.body.previousStatus) { // Assume frontend sends previousStatus
-      await sendClientNotification(data.id, 'status_updated', { newStatus: data.status });
+    if (data.status !== previousStatus) {
+      await sendClientNotification(data.id, "status_updated", {
+        newStatus: data.status,
+      });
     }
 
     res.status(200).json(data);
   } catch (error) {
-    console.error('Error updating client:', error);
-    res.status(500).json({ error: error.message || 'Failed to update client' });
+    console.error("Error updating client:", error);
+    res.status(500).json({ error: error.message || "Failed to update client" });
   }
 };
 
-// Delete a client (admin only)
 const deleteClient = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const { error } = await supabase.from('clients').delete().eq('id', id);
+    const { error } = await supabase.from("clients").delete().eq("id", id);
 
     if (error) {
-      throw new Error('Failed to delete client');
+      throw new Error("Failed to delete client");
     }
 
     // Send notification for client deletion
-    await sendClientNotification(id, 'deleted');
+    await sendClientNotification(id, "deleted");
 
     res.status(204).send();
   } catch (error) {
-    console.error('Error deleting client:', error);
-    res.status(500).json({ error: error.message || 'Failed to delete client' });
+    console.error("Error deleting client:", error);
+    res.status(500).json({ error: error.message || "Failed to delete client" });
   }
 };
 
-// Change client status (admin only)
-const changeClientStatus = async (req, res) => {
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: 'neeraj@antheminfotech.com',
+    pass: 'pcwgfixsrnvingtv', // Use environment variable in production
+  },
+});
+
+// Create Client Account and Send Credentials
+const resendClientCredentials = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { status } = req.body;
+    const { email, password, name, client_id } = req.body;
 
-    if (!['active', 'idle', 'gone'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid status. Must be active, idle, or gone' });
-    }
+    if (!email || !password || !name || !client_id)
+      return res.status(400).json({ message: 'Missing fields' });
 
-    const { data, error } = await supabase
-      .from('clients')
-      .update({ status, updated_at: new Date() })
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) {
-      throw new Error('Failed to update client status');
-    }
-
-    // Send notification for status change
-    await sendClientNotification(id, 'status_updated', { newStatus: status });
-
-    res.status(200).json(data);
-  } catch (error) {
-    console.error('Error changing client status:', error);
-    res.status(500).json({ error: error.message || 'Failed to update client status' });
-  }
-};
-
-// Create client account and send credentials (admin only)
-const createClientAccount = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { password } = req.body;
-
-    if (!password) {
-      return res.status(400).json({ error: 'Password is required' });
-    }
-
-    // Fetch client to ensure it exists
-    const { data: client, error: clientError } = await supabase
-      .from('clients')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (clientError || !client) {
-      throw new Error('Client not found');
-    }
-
-    if (client.has_account) {
-      return res.status(400).json({ error: 'Client already has an account' });
-    }
-
-    // Create user account in Supabase auth
-    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-      email: client.email,
+    // 1. Create user in Supabase Auth
+    const { data: user, error: signUpError } = await supabaseAdmin.auth.admin.createUser({
+      email,
       password,
       email_confirm: true,
       user_metadata: {
-        role: 'user',
-        clientId: id,
-        name: client.name,
+        name,
+        role: 'client',
+        client_id,
       },
     });
 
-    if (authError || !authData.user) {
-      throw new Error('Failed to create client account');
-    }
+    if (signUpError) throw signUpError;
 
-    // Update client to mark has_account as true
-    const { error: updateError } = await supabase
-      .from('clients')
-      .update({ has_account: true, updated_at: new Date() })
-      .eq('id', id);
+    // 2. Encrypt and store password in custom users table
+    const encryptedPassword = encrypt(password);
 
-    if (updateError) {
-      throw new Error('Failed to update client account status');
-    }
+    const { error: insertError } = await supabaseAdmin.from('users').insert({
+      id: user.user.id,
+      email,
+      name,
+      role: 'client',
+      client_id,
+      password: encryptedPassword,
+      created_at: new Date().toISOString(),
+    });
+    if (insertError) throw insertError;
 
-    // Send notification with credentials
-    await sendClientNotification(id, 'account_created', {
-      email: client.email,
-      password, // In production, handle securely
+    // 3. Mark client as having an account
+    await supabaseAdmin.from('clients').update({ has_account: true }).eq('id', client_id);
+
+    // 4. Send email with credentials
+    await transporter.sendMail({
+      from: 'neeraj@antheminfotech.com',
+      to: email,
+      subject: 'Your Client Account Credentials',
+      html: `
+        <h2>Welcome, ${name}</h2>
+        <p>Your client account has been created successfully.</p>
+        <p><strong>Email:</strong> ${email}</p>
+        <p><strong>Password:</strong> ${password}</p>
+        <p>You can login here: <a href="http://localhost:8080/login">Login</a></p>
+        <p>Please change your password after your first login.</p>
+      `,
     });
 
-    res.status(200).json({ message: `Account created for ${client.email}` });
-  } catch (error) {
-    console.error('Error creating client account:', error);
-    res.status(500).json({ error: error.message || 'Failed to create client account' });
+    res.status(200).json({ message: 'Account created and credentials sent' });
+
+  } catch (err) {
+    console.error('Create Client Error:', err);
+    res.status(500).json({ message: 'Server error' });
   }
 };
 
-// Resend client credentials (admin only)
-const resendClientCredentials = async (req, res) => {
+// Resend Credentials from Stored Encrypted Password
+const resendCredentialsOnly = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { email, name } = req.body;
 
-    // Fetch client to ensure it exists and has an account
-    const { data: client, error: clientError } = await supabase
-      .from('clients')
-      .select('*')
-      .eq('id', id)
+    if (!email || !name)
+      return res.status(400).json({ message: 'Missing fields' });
+
+    const { data: user, error: fetchError } = await supabaseAdmin
+      .from('users')
+      .select('password')
+      .eq('email', email)
       .single();
 
-    if (clientError || !client) {
-      throw new Error('Client not found');
-    }
+    if (fetchError || !user)
+      return res.status(404).json({ message: 'User not found or failed to fetch password' });
 
-    if (!client.has_account) {
-      return res.status(400).json({ error: 'Client does not have an account' });
-    }
+    // Decrypt password
+    const originalPassword = decrypt(user.password);
 
-    // In a real app, generate a new temporary password or reset token
-    // For simplicity, assume notification service handles credential delivery
-    await sendClientNotification(id, 'credentials_resent', {
-      email: client.email,
+    // Send email with original credentials
+    await transporter.sendMail({
+      from: 'neeraj@antheminfotech.com',
+      to: email,
+      subject: 'Your Client Account Credentials (Resend)',
+      html: `
+        <h2>Hello, ${name}</h2>
+        <p>Your client account credentials are as follows:</p>
+        <p><strong>Email:</strong> ${email}</p>
+        <p><strong>Password:</strong> ${originalPassword}</p>
+        <p>Login here: <a href="http://localhost:8080/login">Login</a></p>
+        <p>Please reset your password after first login if needed.</p>
+      `,
     });
 
-    res.status(200).json({ message: `Credentials resent to ${client.email}` });
-  } catch (error) {
-    console.error('Error resending client credentials:', error);
-    res.status(500).json({ error: error.message || 'Failed to resend client credentials' });
+    res.status(200).json({ message: 'Credentials resent successfully' });
+
+  } catch (err) {
+    console.error('Resend Credentials Error:', err);
+    res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -264,7 +282,6 @@ module.exports = {
   createClient,
   updateClient,
   deleteClient,
-  changeClientStatus,
-  createClientAccount,
   resendClientCredentials,
+  resendCredentialsOnly
 };

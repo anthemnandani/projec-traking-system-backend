@@ -1,0 +1,67 @@
+users
+{
+    id(uuid),
+    name(text),
+    email(text),
+    phone(text),
+    role(text),
+    client_id(uuid),
+    avatar_url(text),
+    notification_preferences(jsonb),
+    appearance_settings(jsonb),
+    created_at,
+    updated_at,
+    last_login
+}
+
+
+clients
+{
+    id(uuid),
+    name(text),
+    email(text),
+    phone(text),
+    address(text),
+    status(text),
+    has_account(bool),
+    notes(text),
+    created_at,
+    updated_at,
+}
+
+
+tasks
+{
+    id(uuid),
+    title(text),
+    client_id(uuid),
+    description(text),
+    status(text),
+    estimated_hours(numeric),
+    estimated_cost(numeric),
+    actual_hours(numeric),
+    actual_cost(numeric),
+    project_Link(text),
+    notes(text),
+    created_at,
+    updated_at,
+    due_date,
+    completed_at
+}
+
+payments
+{
+    id(uuid),
+    task_id(text),
+    client_id(uuid),
+    amount(numeric),
+    status(text),
+    due_date,
+    invoice_number(text),
+    invoiced_at,
+    received_at,
+    created_at,
+    updated_at,
+    notes(text)
+}
+
