@@ -42,7 +42,6 @@ tasks
     actual_hours(numeric),
     actual_cost(numeric),
     project_Link(text),
-    notes(text),
     created_at,
     updated_at,
     due_date,

@@ -281,7 +281,7 @@ const forgotPassword = async (req, res) => {
 
     // Send password reset email via Supabase
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `http://localhost:8080/reset-password`
+      redirectTo: `${process.env.FRONTEND_URL}/reset-password`
     });
     if (error) {
       console.error('Supabase reset password error:', error.message);
