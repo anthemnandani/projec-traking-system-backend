@@ -1,5 +1,7 @@
 const { supabase, supabaseAdmin } = require('../config/supabase');
 const { encrypt } = require('../utils/crypto');
+const dotenv = require('dotenv');
+dotenv.config();
 
 const login = async (req, res) => {
   try {

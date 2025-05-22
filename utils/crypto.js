@@ -1,7 +1,9 @@
 // utils/crypto.js
 const crypto = require('crypto');
 const algorithm = 'aes-256-cbc';
-const secretKey = process.env.PASSWORD_SECRET_KEY || '01234567890123456789012345678901'; // 32-char key
+const dotenv = require('dotenv');
+dotenv.config();
+const secretKey = process.env.PASSWORD_SECRET_KEY; // 32-char key
 const ivLength = 16;
 
 function encrypt(text) {

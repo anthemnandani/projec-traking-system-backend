@@ -32,7 +32,7 @@ clients
 
 tasks
 {
-    id(uuid),
+    id(text),
     title(text),
     client_id(uuid),
     description(text),

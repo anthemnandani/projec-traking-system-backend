@@ -1,7 +1,9 @@
 const { supabase, supabaseAdmin } = require("../config/supabase");
-const nodemailer = require("nodemailer");
 const { encrypt, decrypt } = require('../utils/crypto');
 const { sendClientNotification } = require("../services/notificationService"); // Assume a notification service for clients
+const { transporter } = require("../config/email");
+const dotenv = require('dotenv');
+dotenv.config();
 
 const getClients = async (req, res) => {
   try {
@@ -164,14 +166,6 @@ const deleteClient = async (req, res) => {
   }
 };
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: 'neeraj@antheminfotech.com',
-    pass: 'pcwgfixsrnvingtv', // Use environment variable in production
-  },
-});
-
 // Create Client Account and Send Credentials
 const resendClientCredentials = async (req, res) => {
   try {
@@ -213,7 +207,7 @@ const resendClientCredentials = async (req, res) => {
 
     // 4. Send email with credentials
     await transporter.sendMail({
-      from: 'neeraj@antheminfotech.com',
+      from: process.env.EMAIL_USER,
       to: email,
       subject: 'Your Client Account Credentials',
       html: `
@@ -221,7 +215,7 @@ const resendClientCredentials = async (req, res) => {
         <p>Your client account has been created successfully.</p>
         <p><strong>Email:</strong> ${email}</p>
         <p><strong>Password:</strong> ${password}</p>
-        <p>You can login here: <a href="http://localhost:8080/login">Login</a></p>
+        <p>You can login here: <a href="${process.env.FRONTEND_URL}">Login</a></p>
         <p>Please change your password after your first login.</p>
       `,
     });
@@ -256,7 +250,7 @@ const resendCredentialsOnly = async (req, res) => {
 
     // Send email with original credentials
     await transporter.sendMail({
-      from: 'neeraj@antheminfotech.com',
+      from: process.env.EMAIL_USER,
       to: email,
       subject: 'Your Client Account Credentials (Resend)',
       html: `
@@ -264,7 +258,7 @@ const resendCredentialsOnly = async (req, res) => {
         <p>Your client account credentials are as follows:</p>
         <p><strong>Email:</strong> ${email}</p>
         <p><strong>Password:</strong> ${originalPassword}</p>
-        <p>Login here: <a href="http://localhost:8080/login">Login</a></p>
+        <p>Login here: <a href="${process.env.FRONTEND_URL}/login">Login</a></p>
         <p>Please reset your password after first login if needed.</p>
       `,
     });

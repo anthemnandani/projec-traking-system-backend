@@ -1,18 +1,17 @@
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
-const dotenv = require('dotenv');
 const multer = require('multer');
 const cookieParser = require('cookie-parser');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const clientRoutes = require('./routes/clientRoutes');
 const taskRoutes = require('./routes/taskRoutes');
-const invoiceRoutes = require('./routes/invoiceRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const { errorHandler } = require('./utils/errorHandler');
 
 // Load environment variables
+const dotenv = require('dotenv');
 dotenv.config();
 
 const app = express();
@@ -60,7 +59,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/client', clientRoutes);
 app.use('/api/tasks', taskRoutes);
-app.use('/api/invoices', invoiceRoutes);
 app.use('/api/payments', paymentRoutes);
 
 // Error handling middleware
