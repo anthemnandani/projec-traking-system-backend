@@ -1,7 +1,7 @@
 const { supabase, supabaseAdmin } = require("../config/supabase");
 const { encrypt, decrypt } = require('../utils/crypto');
 const { sendClientNotification } = require("../services/notificationService"); // Assume a notification service for clients
-const { transporter } = require("../config/email");
+const transporter = require("../config/email");
 const dotenv = require('dotenv');
 dotenv.config();
 
