@@ -11,5 +11,10 @@
             "src": "/(.*)",
             "dest": "index.js"
         }
-    ]
+    ],
+     "functions": {
+    "api/payments/webhook.js": {
+      "bodyParser": false
+    }
+  }
 }

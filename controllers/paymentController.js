@@ -208,40 +208,54 @@ const makePayment = async (req, res) => {
 };
 
 const webhook = async (req, res) => {
-  const sig = req.headers["stripe-signature"];
+  const sig = req.headers['stripe-signature'];
   let event;
 
   try {
+    console.log('Webhook triggered');
+
     event = stripe.webhooks.constructEvent(
       req.body,
       sig,
-      `${process.env.STRIPE_WEBHOOK_SECRET}`
+      process.env.STRIPE_WEBHOOK_SECRET
     );
-  } catch (err) {
-    console.error("Webhook signature verification failed.", err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
 
-  // Handle successful payment
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object;
-    const transactionId = session.payment_intent;
-    const paymentId = session.metadata.paymentId;
+    console.log('✅ Stripe event type:', event.type);
 
-    if (paymentId && transactionId) {
-      await supabase
-        .from("payments")
-        .update({
-          status: "received",
-          received_at: new Date().toISOString(),
-          transactionId: transactionId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", paymentId);
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      console.log('Session received:', session);
+
+      const transactionId = session.payment_intent;
+      const paymentId = session.metadata?.paymentId;
+
+      console.log('transactionId:', transactionId);
+      console.log('paymentId:', paymentId);
+
+      if (paymentId && transactionId) {
+        const { error } = await supabase
+          .from('payments')
+          .update({
+            status: 'received',
+            received_at: new Date().toISOString(),
+            transactionId,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', paymentId);
+
+        if (error) {
+          console.error('Supabase update error:', error.message);
+        } else {
+          console.log('Payment updated in DB');
+        }
+      }
     }
-  }
 
-  res.status(200).json({ received: true });
+    res.status(200).json({ received: true });
+  } catch (err) {
+    console.error('Webhook Error:', err.message);
+    res.status(400).send(`Webhook Error: ${err.message}`);
+  }
 };
 
 module.exports = {
