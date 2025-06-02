@@ -27,6 +27,7 @@ app.use(cors({
   credentials: true
 }));
 app.use(morgan('dev'));
+app.post('/api/payments/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(upload.none());
@@ -40,16 +41,6 @@ app.use((req, res, next) => {
     headers: req.headers,
     body: req.body,
     cookies: req.cookies
-  });
-  next();
-});
-// Log incoming request details for debugging
-app.use((req, res, next) => {
-  console.log('Incoming request:', {
-    method: req.method,
-    url: req.url,
-    headers: req.headers,
-    body: req.body
   });
   next();
 });
