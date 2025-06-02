@@ -1,5 +1,7 @@
 const supabase = require("../config/supabase");
 const { sendClientNotification } = require("../services/notificationService");
+const dotenv = require('dotenv');
+dotenv.config();
 
 const getPayments = async (req, res) => {
   try {
@@ -16,7 +18,9 @@ const getPayments = async (req, res) => {
     res.status(200).json(data);
   } catch (error) {
     console.error("Error fetching payments:", error);
-    res.status(500).json({ error: error.message || "Failed to fetch payments" });
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to fetch payments" });
   }
 };
 
@@ -24,7 +28,9 @@ const createPayment = async (req, res) => {
   try {
     const user = req.user;
     if (user.app_metadata.role !== "admin") {
-      return res.status(403).json({ error: "Unauthorized: Admin access required" });
+      return res
+        .status(403)
+        .json({ error: "Unauthorized: Admin access required" });
     }
 
     const {
@@ -38,35 +44,43 @@ const createPayment = async (req, res) => {
     } = req.body;
 
     if (!task_id || !client_id || !amount || !status || !due_date) {
-      return res.status(400).json({ error: "Task ID, client ID, amount, status, and due date are required" });
+      return res.status(400).json({
+        error: "Task ID, client ID, amount, status, and due date are required",
+      });
     }
 
     const { data, error } = await supabase
       .from("payments")
-      .insert([{
-        task_id,
-        client_id,
-        amount,
-        status,
-        due_date: new Date(due_date).toISOString(),
-        invoice_number,
-        notes,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }])
+      .insert([
+        {
+          task_id,
+          client_id,
+          amount,
+          status,
+          due_date: new Date(due_date).toISOString(),
+          invoice_number,
+          notes,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ])
       .select()
       .single();
 
     if (error) throw new Error("Failed to create payment");
 
     if (status === "invoiced") {
-      await sendClientNotification(client_id, "payment_invoiced", { paymentId: data.id });
+      await sendClientNotification(client_id, "payment_invoiced", {
+        paymentId: data.id,
+      });
     }
 
     res.status(201).json(data);
   } catch (error) {
     console.error("Error creating payment:", error);
-    res.status(500).json({ error: error.message || "Failed to create payment" });
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to create payment" });
   }
 };
 
@@ -74,7 +88,9 @@ const updatePayment = async (req, res) => {
   try {
     const user = req.user;
     if (user.app_metadata.role !== "admin") {
-      return res.status(403).json({ error: "Unauthorized: Admin access required" });
+      return res
+        .status(403)
+        .json({ error: "Unauthorized: Admin access required" });
     }
 
     const { id } = req.params;
@@ -119,15 +135,21 @@ const updatePayment = async (req, res) => {
     }
 
     if (status === "invoiced") {
-      await sendClientNotification(client_id, "payment_invoiced", { paymentId: id });
+      await sendClientNotification(client_id, "payment_invoiced", {
+        paymentId: id,
+      });
     } else if (status === "received") {
-      await sendClientNotification(client_id, "payment_received", { paymentId: id });
+      await sendClientNotification(client_id, "payment_received", {
+        paymentId: id,
+      });
     }
 
     res.status(200).json(data);
   } catch (error) {
     console.error("Error updating payment:", error);
-    res.status(500).json({ error: error.message || "Failed to update payment" });
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to update payment" });
   }
 };
 
@@ -135,23 +157,91 @@ const deletePayment = async (req, res) => {
   try {
     const user = req.user;
     if (user.app_metadata.role !== "admin") {
-      return res.status(403).json({ error: "Unauthorized: Admin access required" });
+      return res
+        .status(403)
+        .json({ error: "Unauthorized: Admin access required" });
     }
 
     const { id } = req.params;
 
-    const { error } = await supabase
-      .from("payments")
-      .delete()
-      .eq("id", id);
+    const { error } = await supabase.from("payments").delete().eq("id", id);
 
     if (error) throw new Error("Failed to delete payment");
 
     res.status(200).json({ message: "Payment deleted successfully" });
   } catch (error) {
     console.error("Error deleting payment:", error);
-    res.status(500).json({ error: error.message || "Failed to delete payment" });
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to delete payment" });
   }
+};
+
+const stripe = require("stripe")(
+  `${process.env.STRIPE_SECRET_KEY}`
+);
+
+const makePayment = async (req, res) => {
+  try {
+    const { items, paymentId } = req.body;
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      mode: "payment",
+      line_items: items.map((item) => ({
+        price_data: {
+          currency: "usd",
+          product_data: { name: item.name },
+          unit_amount: item.price * 100,
+        },
+        quantity: item.quantity,
+      })),
+      success_url: `${process.env.FRONTEND_URL}/dashboard/payments/success`,
+      cancel_url: `${process.env.FRONTEND_URL}/dashboard/payments/cancel`,
+      metadata: {
+        paymentId,
+      },
+    });
+    res.json({ url: session.url });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+const webhook = async (req, res) => {
+  const sig = req.headers["stripe-signature"];
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      `${process.env.STRIPE_WEBHOOK_SECRET}`
+    );
+  } catch (err) {
+    console.error("Webhook signature verification failed.", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Handle successful payment
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    const transactionId = session.payment_intent;
+    const paymentId = session.metadata.paymentId;
+
+    if (paymentId && transactionId) {
+      await supabase
+        .from("payments")
+        .update({
+          status: "received",
+          received_at: new Date().toISOString(),
+          transactionId: transactionId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", paymentId);
+    }
+  }
+
+  res.status(200).json({ received: true });
 };
 
 module.exports = {
@@ -159,4 +249,6 @@ module.exports = {
   createPayment,
   updatePayment,
   deletePayment,
+  makePayment,
+  webhook
 };
