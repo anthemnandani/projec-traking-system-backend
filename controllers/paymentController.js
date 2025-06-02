@@ -1,4 +1,4 @@
-const supabase = require("../config/supabase");
+const {supabase} = require("../config/supabase");
 const { sendClientNotification } = require("../services/notificationService");
 const dotenv = require('dotenv');
 dotenv.config();
@@ -195,7 +195,7 @@ const makePayment = async (req, res) => {
         },
         quantity: item.quantity,
       })),
-      success_url: `${process.env.FRONTEND_URL}/dashboard/payments/success`,
+      success_url: `${process.env.FRONTEND_URL}/dashboard/payments/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.FRONTEND_URL}/dashboard/payments/cancel`,
       metadata: {
         paymentId,
@@ -207,55 +207,68 @@ const makePayment = async (req, res) => {
   }
 };
 
+const verifyPayment = async (req, res) => {
+const { sessionId } = req.body;
+try {
+const session = await stripe.checkout.sessions.retrieve(sessionId);
+const paymentId = session.metadata?.paymentId;
+const transactionId = session.payment_intent;
+if (session.payment_status === "paid" && paymentId && transactionId) {
+  await supabase
+    .from("payments")
+    .update({
+      status: "received",
+      received_at: new Date().toISOString(),
+      transactionId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", paymentId);
+
+  return res.json({ success: true });
+}
+
+return res.status(400).json({ success: false, message: "Payment not completed or metadata missing." });
+} catch (error) {
+console.error("Error verifying payment:", error.message);
+return res.status(500).json({ success: false, message: error.message });
+}
+};
+
 const webhook = async (req, res) => {
-  const sig = req.headers['stripe-signature'];
+  const sig = req.headers["stripe-signature"];
   let event;
 
   try {
-    console.log('Webhook triggered');
-
     event = stripe.webhooks.constructEvent(
       req.body,
       sig,
-      process.env.STRIPE_WEBHOOK_SECRET
+      `${process.env.STRIPE_WEBHOOK_SECRET}`
     );
-
-    console.log('✅ Stripe event type:', event.type);
-
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object;
-      console.log('Session received:', session);
-
-      const transactionId = session.payment_intent;
-      const paymentId = session.metadata?.paymentId;
-
-      console.log('transactionId:', transactionId);
-      console.log('paymentId:', paymentId);
-
-      if (paymentId && transactionId) {
-        const { error } = await supabase
-          .from('payments')
-          .update({
-            status: 'received',
-            received_at: new Date().toISOString(),
-            transactionId,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', paymentId);
-
-        if (error) {
-          console.error('Supabase update error:', error.message);
-        } else {
-          console.log('Payment updated in DB');
-        }
-      }
-    }
-
-    res.status(200).json({ received: true });
   } catch (err) {
-    console.error('Webhook Error:', err.message);
-    res.status(400).send(`Webhook Error: ${err.message}`);
+    console.error("Webhook signature verification failed.", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
   }
+
+  // Handle successful payment
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    const transactionId = session.payment_intent;
+    const paymentId = session.metadata.paymentId;
+
+    if (paymentId && transactionId) {
+      await supabase
+        .from("payments")
+        .update({
+          status: "received",
+          received_at: new Date().toISOString(),
+          transactionId: transactionId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", paymentId);
+    }
+  }
+
+  res.status(200).json({ received: true });
 };
 
 module.exports = {
@@ -264,5 +277,6 @@ module.exports = {
   updatePayment,
   deletePayment,
   makePayment,
+  verifyPayment,
   webhook
 };
