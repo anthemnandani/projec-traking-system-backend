@@ -1,6 +1,6 @@
-const {supabase} = require("../config/supabase");
+const { supabase } = require("../config/supabase");
 const { sendClientNotification } = require("../services/notificationService");
-const dotenv = require('dotenv');
+const dotenv = require("dotenv");
 dotenv.config();
 
 const getPayments = async (req, res) => {
@@ -177,9 +177,7 @@ const deletePayment = async (req, res) => {
   }
 };
 
-const stripe = require("stripe")(
-  `${process.env.STRIPE_SECRET_KEY}`
-);
+const stripe = require("stripe")(`${process.env.STRIPE_SECRET_KEY}`);
 
 const makePayment = async (req, res) => {
   try {
@@ -195,7 +193,7 @@ const makePayment = async (req, res) => {
         },
         quantity: item.quantity,
       })),
-      success_url: `${process.env.FRONTEND_URL}/dashboard/payments/success?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${process.env.FRONTEND_URL}/dashboard/payments/success?paymentId=${paymentId}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.FRONTEND_URL}/dashboard/payments/cancel`,
       metadata: {
         paymentId,
@@ -208,31 +206,73 @@ const makePayment = async (req, res) => {
 };
 
 const verifyPayment = async (req, res) => {
-const { sessionId } = req.body;
-try {
-const session = await stripe.checkout.sessions.retrieve(sessionId);
-const paymentId = session.metadata?.paymentId;
-const transactionId = session.payment_intent;
-if (session.payment_status === "paid" && paymentId && transactionId) {
-  await supabase
-    .from("payments")
-    .update({
-      status: "received",
-      received_at: new Date().toISOString(),
-      transactionId,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", paymentId);
+  const { sessionId, taskTitle, clientName, userId } = req.body;
+  console.log("Verifying payment for user:", userId);
+  console.log("Verifying payment for taskTitle:", taskTitle);
+  console.log("Verifying payment for clientName:", clientName);
+  try {
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const paymentId = session.metadata?.paymentId;
+    const transactionId = session.payment_intent;
+    if (session.payment_status === "paid" && paymentId && transactionId) {
+      await supabase
+        .from("payments")
+        .update({
+          status: "received",
+          received_at: new Date().toISOString(),
+          transactionId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", paymentId);
 
-  return res.json({ success: true });
-}
+      await supabase.from("notifications").insert({
+        receiver_role: "admin",
+        sender_role: "client",
+        type: "payment",
+        title: "Payment Received",
+        message: `Payment received from ${clientName} for task "${taskTitle}".`,
+        triggered_by: userId,
+      });
 
-return res.status(400).json({ success: false, message: "Payment not completed or metadata missing." });
-} catch (error) {
-console.error("Error verifying payment:", error.message);
-return res.status(500).json({ success: false, message: error.message });
-}
+      return res.json({ success: true });
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: "Payment not completed or metadata missing.",
+    });
+  } catch (error) {
+    console.error("Error verifying payment:", error.message);
+    return res.status(500).json({ success: false, message: error.message });
+  }
 };
+
+// const verifyPayment = async (req, res) => {
+// const { sessionId } = req.body;
+// try {
+// const session = await stripe.checkout.sessions.retrieve(sessionId);
+// const paymentId = session.metadata?.paymentId;
+// const transactionId = session.payment_intent;
+// if (session.payment_status === "paid" && paymentId && transactionId) {
+//   await supabase
+//     .from("payments")
+//     .update({
+//       status: "received",
+//       received_at: new Date().toISOString(),
+//       transactionId,
+//       updated_at: new Date().toISOString(),
+//     })
+//     .eq("id", paymentId);
+
+//   return res.json({ success: true });
+// }
+
+// return res.status(400).json({ success: false, message: "Payment not completed or metadata missing." });
+// } catch (error) {
+// console.error("Error verifying payment:", error.message);
+// return res.status(500).json({ success: false, message: error.message });
+// }
+// };
 
 const webhook = async (req, res) => {
   const sig = req.headers["stripe-signature"];
@@ -278,5 +318,5 @@ module.exports = {
   deletePayment,
   makePayment,
   verifyPayment,
-  webhook
+  webhook,
 };
