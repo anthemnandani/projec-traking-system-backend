@@ -231,7 +231,14 @@ const verifyPayment = async (req, res) => {
         type: "payment",
         title: "Payment Received",
         message: `Payment received from ${clientName} for task "${taskTitle}".`,
-        triggered_by: userId,
+      });
+     
+      await supabase.from("notifications").insert({
+        receiver_role: "client",
+        sender_role: "admin",
+        type: "payment",
+        title: "Transaction Successful",
+        message: `Transaction successful for task "${taskTitle}".`,
       });
 
       return res.json({ success: true });
