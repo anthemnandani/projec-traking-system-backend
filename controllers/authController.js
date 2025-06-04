@@ -404,4 +404,54 @@ const resetPassword = async (req, res) => {
   }
 };
 
-module.exports = { login, register, logout, forgotPassword, resetPassword };
+const updatePassword = async (req, res) => {
+  const { userId, newPassword, role, clientId } = req.body;
+
+  if (!userId || !newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: 'Invalid data provided' });
+  }
+
+  try {
+    // 1. Update password in Supabase Auth
+    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      password: newPassword,
+    });
+
+    if (authError) {
+      return res.status(500).json({ error: authError.message });
+    }
+
+    // 2. Encrypt password and update custom users table
+    const encryptedPassword = encrypt(newPassword);
+
+    const { error: dbError } = await supabaseAdmin
+      .from('users')
+      .update({ password: encryptedPassword })
+      .eq('id', userId);
+
+    if (dbError) {
+      return res.status(500).json({ error: dbError.message });
+    }
+
+    // 3. Optional: Log a notification for client
+    if (role === 'client' && clientId) {
+      await supabaseAdmin.from('notifications').insert({
+        receiver_id: clientId,
+        receiver_role: 'client',
+        sender_role: 'admin',
+        type: 'client',
+        title: 'Password Updated',
+        message:
+          'Password has been updated successfully. If you did not initiate this change, please contact support immediately.',
+        triggered_by: userId,
+      });
+    }
+
+    return res.status(200).json({ message: 'Password updated successfully' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Internal Server Error', details: err.message });
+  }
+};
+
+
+module.exports = { login, register, logout, forgotPassword, resetPassword, updatePassword };

@@ -230,6 +230,7 @@ const verifyPayment = async (req, res) => {
         sender_role: "client",
         type: "payment",
         title: "Payment Received",
+        triggered_by:userId,
         message: `Payment received from ${clientName} for task "${taskTitle}".`,
       });
      
@@ -237,6 +238,7 @@ const verifyPayment = async (req, res) => {
         receiver_role: "client",
         sender_role: "admin",
         type: "payment",
+        receiver_id: userId,
         title: "Transaction Successful",
         message: `Transaction successful for task "${taskTitle}".`,
       });
