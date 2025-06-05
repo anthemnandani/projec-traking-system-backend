@@ -206,8 +206,7 @@ const makePayment = async (req, res) => {
 };
 
 const verifyPayment = async (req, res) => {
-  const { sessionId, taskTitle, clientName, userId } = req.body;
-  console.log("Verifying payment for user:", userId);
+  const { sessionId, taskTitle, clientName } = req.body;
   console.log("Verifying payment for taskTitle:", taskTitle);
   console.log("Verifying payment for clientName:", clientName);
   try {
@@ -215,33 +214,29 @@ const verifyPayment = async (req, res) => {
     const paymentId = session.metadata?.paymentId;
     const transactionId = session.payment_intent;
     if (session.payment_status === "paid" && paymentId && transactionId) {
-      await supabase
+     const now = new Date().toISOString();
+
+      const { error: updateError } = await supabase
         .from("payments")
         .update({
           status: "received",
-          received_at: new Date().toISOString(),
+          received_at: now,
           transactionId,
-          updated_at: new Date().toISOString(),
+          updated_at: now,
         })
         .eq("id", paymentId);
 
-      await supabase.from("notifications").insert({
+      if (updateError) throw new Error(updateError.message);
+
+      const { error: notifyAdminError } = await supabase.from("notifications").insert({
         receiver_role: "admin",
         sender_role: "client",
         type: "payment",
         title: "Payment Received",
-        triggered_by:userId,
         message: `Payment received from ${clientName} for task "${taskTitle}".`,
       });
-     
-      await supabase.from("notifications").insert({
-        receiver_role: "client",
-        sender_role: "admin",
-        type: "payment",
-        receiver_id: userId,
-        title: "Transaction Successful",
-        message: `Transaction successful for task "${taskTitle}".`,
-      });
+
+      if (notifyAdminError) throw new Error(notifyAdminError.message);
 
       return res.json({ success: true });
     }
